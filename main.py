@@ -22,15 +22,35 @@ _, binary_image = cv2.threshold(gray_image, 0, 255, cv2.THRESH_BINARY + cv2.THRE
 # Конфигурация для распознавания текста (русский)
 config_text = '--oem 3 --psm 6 -l rus'
 
+# Список слов для игнорирования (без привязки к координатам)
+ignore_words = [
+    "российская",
+    "федерация",
+    "страховое",
+    "свидетельство",
+    "обязательного",
+    "страхования",
+    "пенсионного",
+    "рождения",
+    "место"
+]
+
+# Приведение слова к стандартному формату (нижний регистр и без знаков препинания)
+def clean_and_format_word(word):
+    return re.sub(r'\W+', '', word).lower()  # Убираем знаки и приводим к нижнему регистру
+
+# Проверка, нужно ли игнорировать слово
+def is_ignored(word):
+    formatted_word = clean_and_format_word(word)
+    return formatted_word in ignore_words
+
 # Фильтрация символов для удаления знаков препинания и символов
 def clean_word(word):
     return re.sub(r'\W+', '', word)  # Убираем всё, кроме букв и цифр
 
-
 # Проверка, является ли строка числом
 def is_number(word):
     return word.isdigit()
-
 
 # Извлечение текстовых данных с бинарного изображения
 data_text = pytesseract.image_to_data(binary_image, config=config_text, output_type=pytesseract.Output.DICT)
@@ -49,20 +69,53 @@ for i in range(len(data_text['text'])):
 
     # Пропускаем результаты с confidence score ниже заданного порога
     if conf >= confidence_threshold:
-        # Если слово состоит более чем из одной буквы или это цифра, добавляем его
-        if len(word) > 1 or is_number(word):
-            ocr_results.append((x, y, word, conf, "text"))
+        # Игнорируем слова из списка ignore_words
+        if not is_ignored(word):
+            # Если слово состоит более чем из одной буквы или это цифра, добавляем его
+            if len(word) > 1 or is_number(word):
+                ocr_results.append((x, y, word, conf, "text"))
+
+# Функция для группировки близко расположенных результатов
+def group_nearby_results(results, x_threshold=50, y_threshold=30):
+    grouped_results = []
+    current_group = []
+
+    for i, (x, y, word, conf, ocr_type) in enumerate(results):
+        if not current_group:
+            current_group.append((x, y, word, conf, ocr_type))
+        else:
+            last_x, last_y, _, _, _ = current_group[-1]
+            # Проверяем близость текущего элемента к последнему в текущей группе
+            if abs(x - last_x) < x_threshold and abs(y - last_y) < y_threshold:
+                current_group.append((x, y, word, conf, ocr_type))
+            else:
+                # Заканчиваем текущую группу и начинаем новую
+                grouped_results.append(current_group)
+                current_group = [(x, y, word, conf, ocr_type)]
+
+    # Добавляем последнюю группу, если она существует
+    if current_group:
+        grouped_results.append(current_group)
+
+    return grouped_results
 
 # Сортировка результатов по y, затем по x координатам
 ocr_results_sorted = sorted(ocr_results, key=lambda k: (k[1], k[0]))
 
-# Сохранение отсортированных результатов в текстовый файл
-txt_output_path = "ocr_results_sorted.txt"
+# Группировка результатов
+grouped_ocr_results = group_nearby_results(ocr_results_sorted)
+
+# Сохранение отсортированных и сгруппированных результатов в текстовый файл
+txt_output_path = "ocr_results_grouped.txt"
 
 try:
     with open(txt_output_path, "w", encoding="utf-8") as file:
-        for item in ocr_results_sorted:
-            file.write(f"x: {item[0]}, y: {item[1]}, text: {item[2]}, confidence: {item[3]}, ocr_type: {item[4]}\n")
+        for group in grouped_ocr_results:
+            grouped_text = ' '.join([item[2] for item in group])  # Объединяем текст группы в строку
+            x_coords = [item[0] for item in group]
+            y_coords = [item[1] for item in group]
+            confs = [item[3] for item in group]
+            file.write(f"x: {min(x_coords)}, y: {min(y_coords)}, text: {grouped_text}, confidence: {min(confs)}, ocr_type: text\n")
     print(f"Результаты OCR сохранены в {txt_output_path}")
 except Exception as e:
     print(f"Ошибка при сохранении файла: {e}")
