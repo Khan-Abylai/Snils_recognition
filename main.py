@@ -52,6 +52,10 @@ def clean_word(word):
 def is_number(word):
     return word.isdigit()
 
+# Проверка, содержит ли слово только буквы (не цифры)
+def is_alpha(word):
+    return word.isalpha()
+
 # Извлечение текстовых данных с бинарного изображения
 data_text = pytesseract.image_to_data(binary_image, config=config_text, output_type=pytesseract.Output.DICT)
 
@@ -75,7 +79,18 @@ for i in range(len(data_text['text'])):
             if len(word) > 1 or is_number(word):
                 ocr_results.append((x, y, word, conf, "text"))
 
-# Функция для группировки близко расположенных результатов
+# Сохранение исходных результатов OCR перед группировкой
+txt_output_path_raw = "ocr_results_raw.txt"
+
+try:
+    with open(txt_output_path_raw, "w", encoding="utf-8") as file:
+        for item in ocr_results:
+            file.write(f"x: {item[0]}, y: {item[1]}, text: {item[2]}, confidence: {item[3]}, ocr_type: {item[4]}\n")
+    print(f"Изначальные результаты OCR сохранены в {txt_output_path_raw}")
+except Exception as e:
+    print(f"Ошибка при сохранении файла: {e}")
+
+# Функция для группировки близко расположенных результатов с учетом игнорирования цифр при группировке имен
 def group_nearby_results(results, x_threshold=50, y_threshold=30):
     grouped_results = []
     current_group = []
@@ -84,9 +99,16 @@ def group_nearby_results(results, x_threshold=50, y_threshold=30):
         if not current_group:
             current_group.append((x, y, word, conf, ocr_type))
         else:
-            last_x, last_y, _, _, _ = current_group[-1]
+            last_x, last_y, last_word, _, _ = current_group[-1]
+
             # Проверяем близость текущего элемента к последнему в текущей группе
-            if abs(x - last_x) < x_threshold and abs(y - last_y) < y_threshold:
+            if abs(x - last_x) < x_threshold or abs(y - last_y) < y_threshold:
+                # Если текущее слово содержит цифры, и группа состоит из букв, не добавляем в группу
+                if is_alpha(last_word) and is_number(word):
+                    continue
+                # Если текущее слово содержит буквы, и группа состоит из цифр, не добавляем в группу
+                if is_number(last_word) and is_alpha(word):
+                    continue
                 current_group.append((x, y, word, conf, ocr_type))
             else:
                 # Заканчиваем текущую группу и начинаем новую
@@ -106,16 +128,16 @@ ocr_results_sorted = sorted(ocr_results, key=lambda k: (k[1], k[0]))
 grouped_ocr_results = group_nearby_results(ocr_results_sorted)
 
 # Сохранение отсортированных и сгруппированных результатов в текстовый файл
-txt_output_path = "ocr_results_grouped.txt"
+txt_output_path_grouped = "ocr_results_grouped.txt"
 
 try:
-    with open(txt_output_path, "w", encoding="utf-8") as file:
+    with open(txt_output_path_grouped, "w", encoding="utf-8") as file:
         for group in grouped_ocr_results:
             grouped_text = ' '.join([item[2] for item in group])  # Объединяем текст группы в строку
             x_coords = [item[0] for item in group]
             y_coords = [item[1] for item in group]
             confs = [item[3] for item in group]
             file.write(f"x: {min(x_coords)}, y: {min(y_coords)}, text: {grouped_text}, confidence: {min(confs)}, ocr_type: text\n")
-    print(f"Результаты OCR сохранены в {txt_output_path}")
+    print(f"Сгруппированные результаты OCR сохранены в {txt_output_path_grouped}")
 except Exception as e:
     print(f"Ошибка при сохранении файла: {e}")
