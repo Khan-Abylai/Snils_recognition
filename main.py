@@ -91,7 +91,8 @@ except Exception as e:
     print(f"Ошибка при сохранении файла: {e}")
 
 # Функция для группировки близко расположенных результатов с учетом игнорирования цифр при группировке имен
-def group_nearby_results(results, x_threshold=50, y_threshold=30):
+# Ограничение на максимум 3 элемента в одной группе
+def group_nearby_results(results, x_threshold=50, y_threshold=30, max_group_size=3):
     grouped_results = []
     current_group = []
 
@@ -100,16 +101,15 @@ def group_nearby_results(results, x_threshold=50, y_threshold=30):
             current_group.append((x, y, word, conf, ocr_type))
         else:
             last_x, last_y, last_word, _, _ = current_group[-1]
+            _, _, first_word, _, _ = current_group[0]
 
             # Проверяем близость текущего элемента к последнему в текущей группе
-            if abs(x - last_x) < x_threshold or abs(y - last_y) < y_threshold:
+            if ((abs(x - last_x) < x_threshold or abs(y - last_y) < y_threshold)) and len(current_group) < max_group_size:
                 # Если текущее слово содержит цифры, и группа состоит из букв, не добавляем в группу
-                if is_alpha(last_word) and is_number(word):
-                    continue
-                # Если текущее слово содержит буквы, и группа состоит из цифр, не добавляем в группу
-                if is_number(last_word) and is_alpha(word):
+                if is_alpha(first_word) and is_number(word):
                     continue
                 current_group.append((x, y, word, conf, ocr_type))
+                print(current_group)
             else:
                 # Заканчиваем текущую группу и начинаем новую
                 grouped_results.append(current_group)
